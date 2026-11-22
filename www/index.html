@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>لعبة المنصات والأكشن</title>
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    body {
+      margin: 0;
+      background: #141824;
+      color: #fff;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #hud {
+      width: 100%;
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 16px;
+      background: rgba(0,0,0,0.35);
+    }
+    canvas {
+      background: linear-gradient(#38bdf8 0%, #bae6fd 65%, #4d7c0f 65%, #365314 100%);
+      width: 100%;
+      max-width: 720px;
+      height: 62vh;
+      border-bottom: 4px solid #1e293b;
+    }
+    #controls {
+      width: 100%;
+      max-width: 720px;
+      padding: 12px 16px 22px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      background: #0f172a;
+    }
+    .group { display: flex; gap: 10px; }
+    button.ctrl {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      border: none;
+      font-size: 22px;
+      font-weight: bold;
+      color: #fff;
+      background: #334155;
+      touch-action: manipulation;
+    }
+    button.ctrl:active { transform: scale(0.95); background: #475569; }
+    #jumpBtn { background: #0284c7; }
+    #atkBtn { background: #dc2626; width: 76px; }
+    #restartBtn {
+      display: none;
+      position: fixed;
+      top: 42%;
+      padding: 14px 26px;
+      font-size: 18px;
+      border: none;
+      border-radius: 12px;
+      background: #16a34a;
+      color: #fff;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div>النقاط: <span id="score">0</span></div>
+    <div>الطاقة: <span id="hp">100</span></div>
+  </div>
+
+  <canvas id="game" width="720" height="420"></canvas>
+  <button id="restartBtn" onclick="resetGame()">إعادة اللعب</button>
+
+  <div id="controls">
+    <div class="group">
+      <button class="ctrl" id="leftBtn">←</button>
+      <button class="ctrl" id="rightBtn">→</button>
+    </div>
+    <div class="group">
+      <button class="ctrl" id="jumpBtn">↑</button>
+      <button class="ctrl" id="atkBtn">⚔</button>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const scoreEl = document.getElementById("score");
+    const hpEl = document.getElementById("hp");
+    const restartBtn = document.getElementById("restartBtn");
+
+    const groundY = 340;
+    let score = 0;
+    let gameOver = false;
+    let keys = { left: false, right: false };
+
+    const player = {
+      x: 80, y: groundY - 48, w: 36, h: 48,
+      vx: 0, vy: 0, speed: 4.5, jumpPower: -12,
+      onGround: true, facing: 1, hp: 100, atkCooldown: 0
+    };
+
+    let bullets = [];
+    let enemies = [];
+    let spawnTimer = 0;
+
+    function resetGame() {
+      score = 0;
+      gameOver = false;
+      player.x = 80;
+      player.y = groundY - player.h;
+      player.vx = 0;
+      player.vy = 0;
+      player.hp = 100;
+      bullets = [];
+      enemies = [];
+      spawnTimer = 0;
+      restartBtn.style.display = "none";
+      loop();
+    }
+
+    function bindHold(btnId, keyName) {
+      const el = document.getElementById(btnId);
+      el.addEventListener("pointerdown", () => keys[keyName] = true);
+      ["pointerup", "pointerleave", "pointercancel"].forEach(ev =>
+        el.addEventListener(ev, () => keys[keyName] = false)
+      );
+    }
+
+    bindHold("leftBtn", "left");
+    bindHold("rightBtn", "right");
+
+    document.getElementById("jumpBtn").addEventListener("pointerdown", () => {
+      if (player.onGround && !gameOver) {
+        player.vy = player.jumpPower;
+        player.onGround = false;
+      }
+    });
+
+    document.getElementById("atkBtn").addEventListener("pointerdown", () => {
+      if (player.atkCooldown <= 0 && !gameOver) {
+        bullets.push({
+          x: player.x + (player.facing === 1 ? player.w : -14),
+          y: player.y + 20,
+          w: 14, h: 8,
+          vx: player.facing * 8
+        });
+        player.atkCooldown = 16;
+      }
+    });
+
+    function spawnEnemy() {
+      const fromRight = Math.random() > 0.25;
+      enemies.push({
+        x: fromRight ? canvas.width + 20 : -30,
+        y: groundY - 40,
+        w: 34, h: 40,
+        speed: fromRight ? -(1.8 + Math.random() * 1.5) : (1.8 + Math.random() * 1.5)
+      });
+    }
+
+    function hit(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function update() {
+      if (gameOver) return;
+
+      player.vx = 0;
+      if (keys.left) { player.vx = -player.speed; player.facing = -1; }
+      if (keys.right) { player.vx = player.speed; player.facing = 1; }
+
+      player.x = Math.max(0, Math.min(canvas.width - player.w, player.x + player.vx));
+      player.vy += 0.65;
+      player.y += player.vy;
+
+      if (player.y >= groundY - player.h) {
+        player.y = groundY - player.h;
+        player.vy = 0;
+        player.onGround = true;
+      }
+
+      if (player.atkCooldown > 0) player.atkCooldown--;
+
+      bullets.forEach(b => b.x += b.vx);
+      bullets = bullets.filter(b => b.x > -30 && b.x < canvas.width + 30);
+
+      spawnTimer++;
+      if (spawnTimer > 75) {
+        spawnEnemy();
+        spawnTimer = 0;
+      }
+
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        e.x += e.speed;
+
+        let destroyed = false;
+        for (let j = bullets.length - 1; j >= 0; j--) {
+          if (hit(bullets[j], e)) {
+            bullets.splice(j, 1);
+            enemies.splice(i, 1);
+            score += 10;
+            scoreEl.textContent = score;
+            destroyed = true;
+            break;
+          }
+        }
+        if (destroyed) continue;
+
+        if (hit(player, e)) {
+          enemies.splice(i, 1);
+          player.hp -= 20;
+          hpEl.textContent = Math.max(0, player.hp);
+          if (player.hp <= 0) {
+            gameOver = true;
+            restartBtn.style.display = "block";
+          }
+        } else if (e.x < -80 || e.x > canvas.width + 80) {
+          enemies.splice(i, 1);
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // الأرضية
+      ctx.fillStyle = "#3f6212";
+      ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+
+      // اللاعب
+      ctx.fillStyle = "#f97316";
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+
+      // القذائف
+      ctx.fillStyle = "#fde047";
+      bullets.forEach(b => ctx.fillRect(b.x, b.y, b.w, b.h));
+
+      // الأعداء
+      ctx.fillStyle = "#ef4444";
+      enemies.forEach(e => ctx.fillRect(e.x, e.y, e.w, e.h));
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.font = "28px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("انتهت الجولة - النقاط: " + score, canvas.width / 2, canvas.height / 2 - 20);
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      if (!gameOver) requestAnimationFrame(loop);
+    }
+
+    loop();
+  </script>
+</body>
+</html>
